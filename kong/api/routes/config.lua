@@ -1,5 +1,7 @@
 local declarative = require("kong.db.declarative")
+local reports = require("kong.reports")
 local kong = kong
+local reports_send = reports.send
 
 
 -- Do not accept Lua configurations from the Admin API
@@ -7,6 +9,10 @@ local kong = kong
 local accept = {
   yaml = true,
   json = true,
+}
+
+local _reports = {
+    _format_version = false,
 }
 
 
@@ -24,9 +30,9 @@ return {
 
       local config = self.params.config
       -- TODO extract proper filename from the input
-      local entities, err = dc:parse_string(config, "config.yml", accept)
-      if err then
-        return kong.response.exit(400, { error = err })
+      local entities, err_or_ver = dc:parse_string(config, "config.yml", accept)
+      if not entities then
+        return kong.response.exit(400, { error = err_or_ver })
       end
 
       local ok, err = declarative.load_into_cache(entities)
@@ -34,6 +40,9 @@ return {
         kong.log.err("failed loading declarative config into cache: ", err)
         return kong.response.exit(500, { message = "An unexpected error occurred" })
       end
+
+      _reports._format_version = err_or_ver
+      reports_send("dbless-reconfigure", _reports)
 
       return kong.response.exit(201, entities)
     end,
